@@ -6,7 +6,7 @@ from pathlib import Path
 
 # Configure page
 st.set_page_config(
-    page_title="Preditor de Votação - Eleições 2022",
+    page_title="Preditor de Votação - Eleições 2022 - 1o Turno",
     page_icon="🗳️",
     layout="wide"
 )
@@ -14,13 +14,8 @@ st.set_page_config(
 # Title and description
 st.title("🗳️ Preditor de Votação em Lula 2022")
 st.markdown("""
-Este aplicativo compara três modelos de predição do percentual de votos em Lula no primeiro turno de 2022:
-- **Modelo 1**: Baseado apenas no % de famílias beneficiárias do Bolsa Família
-- **Modelo 2**: Adiciona efeito regional (Nordeste vs. outras regiões)  
-- **Modelo 3**: Considera efeitos específicos de cada estado brasileiro
+**Objetivo**: Comparar três modelos de predição usando dados municipais brasileiros.
 """)
-
-st.info("💡 **Objetivo**: Analisar como variáveis socioeconômicas e geográficas influenciam o comportamento eleitoral")
 
 @st.cache_data
 def load_models():
@@ -63,44 +58,38 @@ def load_data():
 models = load_models()
 df = load_data()
 
-if models is None:
-    st.error("Could not load any models. Please check the model files.")
-    st.stop()
-elif not models:
-    st.error("No models were successfully loaded.")
+# Load models and data
+models = load_models()
+df = load_data()
+
+if models is None or not models:
+    st.error("❌ Nenhum modelo pôde ser carregado.")
     st.stop()
 
-if df is None:
-    st.warning("Could not load data file. Some statistics will not be available.")
-
-# Create columns for layout
-col1, col2 = st.columns([1, 2])
+# Create 3-column layout for more efficient use of space
+col1, col2, col3 = st.columns([1, 2, 1])
 
 with col1:
-    st.header("📊 Dados de Entrada")
+    st.subheader("📊 Entrada")
     
-    # Bolsa Família percentage - main input for all models
+    # Bolsa Família percentage - main input
     perc_bolsa_familia = st.slider(
-        "% Famílias Bolsa Família",
+        "% Bolsa Família",
         min_value=0.0,
         max_value=30.0,
         value=15.0,
         step=0.5,
-        help="Percentual de famílias beneficiárias do Bolsa Família (principal variável preditiva)"
+        help="Principal variável preditiva"
     )
     
-    st.markdown("---")
-    st.subheader("Para modelos regionais/estaduais:")
-    
-    # Region selection (for regional model)
+    # Region and state in compact form
     regiao = st.selectbox(
         "Região",
         options=['Norte', 'Nordeste', 'Sudeste', 'Sul', 'Centro-Oeste'],
-        index=1,  # Default to Nordeste
-        help="Região do município (para modelo regional)"
+        index=1
     )
     
-    # State selection (for state model)
+    # State selection
     estados_por_regiao = {
         'Norte': ['RO', 'AC', 'AM', 'RR', 'PA', 'AP', 'TO'],
         'Nordeste': ['MA', 'PI', 'CE', 'RN', 'PB', 'PE', 'AL', 'SE', 'BA'],
@@ -109,23 +98,10 @@ with col1:
         'Centro-Oeste': ['MS', 'MT', 'GO', 'DF']
     }
     
-    uf = st.selectbox(
-        "Estado (UF)",
-        options=estados_por_regiao[regiao],
-        help="Estado do município (para modelo por estados)"
-    )
-    
-    # Show which variables each model uses
-    st.markdown("---")
-    st.subheader("📋 Variáveis por modelo:")
-    st.markdown("""
-    **Modelo 1**: Apenas % Bolsa Família  
-    **Modelo 2**: % Bolsa Família + Nordeste (sim/não)  
-    **Modelo 3**: % Bolsa Família + Estado específico
-    """)
+    uf = st.selectbox("Estado", options=estados_por_regiao[regiao])
 
 with col2:
-    st.header("🎯 Predições dos Modelos")
+    st.subheader("🎯 Predições")
     
     # Prepare input data for predictions
     def make_predictions():
@@ -136,43 +112,36 @@ with col2:
             if 'inicial' in models:
                 X_inicial = np.array([[perc_bolsa_familia]])
                 pred_inicial = models['inicial'].predict(X_inicial)[0]
-                predictions['Modelo 1: Só Bolsa Família'] = pred_inicial
+                predictions['Modelo 1'] = pred_inicial
             
             # Model 2: Regional model - % Bolsa Família + Nordeste dummy
             if 'regional' in models:
-                # Create Nordeste dummy (1 if Nordeste, 0 otherwise)
                 is_nordeste = 1 if regiao == 'Nordeste' else 0
                 X_regional = np.array([[perc_bolsa_familia, is_nordeste]])
                 pred_regional = models['regional'].predict(X_regional)[0]
-                predictions['Modelo 2: Bolsa Família + Nordeste'] = pred_regional
+                predictions['Modelo 2'] = pred_regional
             
             # Model 3: State model - % Bolsa Família + state dummies
             if 'estados' in models:
-                # Create state dummies for 26 states (excluding MG which is the reference)
-                all_states = ['AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 
-                             'MA', 'MT', 'MS', 'PA', 'PB', 'PR', 'PE', 'PI', 
-                             'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SE', 'SP', 'TO']
-                # Note: MG is excluded as it's the reference state
+                # AC is the reference state (first alphabetically), not MG
+                # States with dummies (all except AC)
+                states_with_dummies = ['AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 
+                                      'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 
+                                      'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO']
                 
                 # Create dummy variables (1 for selected state, 0 for others)
-                # If the selected state is MG, all dummies will be 0 (reference category)
-                if uf == 'MG':
-                    state_dummies = [0] * 26  # All zeros for reference state
+                # If the selected state is AC, all dummies will be 0 (reference category)
+                if uf == 'AC':
+                    state_dummies = [0] * 26  # All zeros for reference state (AC)
                 else:
-                    state_dummies = [1 if state == uf else 0 for state in all_states]
+                    state_dummies = [1 if state == uf else 0 for state in states_with_dummies]
                 
-                # Combine Bolsa Família with state dummies (should be 27 features total)
                 X_estados = np.array([[perc_bolsa_familia] + state_dummies])
                 pred_estados = models['estados'].predict(X_estados)[0]
-                predictions['Modelo 3: Bolsa Família + Estado'] = pred_estados
-            
-            if not predictions:
-                st.error("No models available for predictions")
-                return None
+                predictions['Modelo 3'] = pred_estados
                 
         except Exception as e:
-            st.error(f"Erro ao fazer predições: {e}")
-            st.info("Tip: Try different input values or check model compatibility")
+            st.error(f"Erro: {e}")
             return None
             
         return predictions
@@ -181,81 +150,75 @@ with col2:
     predictions = make_predictions()
     
     if predictions:
-        # Display predictions in cards
-        for model_name, prediction in predictions.items():
-            with st.container():
-                st.markdown(f"""
-                <div style="
-                    background-color: #f0f2f6;
-                    padding: 20px;
-                    border-radius: 10px;
-                    margin: 10px 0;
-                    border-left: 5px solid #1f77b4;
-                ">
-                    <h3 style="margin: 0; color: #1f77b4;">{model_name}</h3>
-                    <h2 style="margin: 10px 0; color: #333;">{prediction:.2f}%</h2>
-                    <p style="margin: 0; color: #666;">Predição de votos em Lula</p>
+        # Compact prediction display
+        for i, (model_name, prediction) in enumerate(predictions.items()):
+            color = ["#FF6B6B", "#4ECDC4", "#45B7D1"][i]
+            st.markdown(f"""
+            <div style="background: linear-gradient(90deg, {color}20, {color}10); 
+                        padding: 15px; margin: 8px 0; border-radius: 8px; 
+                        border-left: 4px solid {color};">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: bold; color: {color};">{model_name}</span>
+                    <span style="font-size: 20px; font-weight: bold;">{prediction:.1f}%</span>
                 </div>
-                """, unsafe_allow_html=True)
+            </div>
+            """, unsafe_allow_html=True)
         
-        # Show comparison
-        st.subheader("📈 Comparação dos Modelos")
-        
-        pred_df = pd.DataFrame({
-            'Modelo': list(predictions.keys()),
-            'Predição (%)': list(predictions.values())
-        })
-        
-        st.bar_chart(pred_df.set_index('Modelo'))
-        
-        # Show statistics
+        # Compact statistics
         avg_pred = np.mean(list(predictions.values()))
-        std_pred = np.std(list(predictions.values()))
+        range_pred = max(predictions.values()) - min(predictions.values())
         
-        col_stats1, col_stats2, col_stats3 = st.columns(3)
-        
-        with col_stats1:
-            st.metric("Média", f"{avg_pred:.2f}%")
-        
-        with col_stats2:
-            st.metric("Desvio Padrão", f"{std_pred:.2f}%")
-            
-        with col_stats3:
-            st.metric("Amplitude", f"{max(predictions.values()) - min(predictions.values()):.2f}%")
+        st.markdown(f"""
+        <div style="background: #f8f9fa; padding: 10px; border-radius: 5px; margin-top: 10px;">
+            <small>
+            <strong style="color: #212529;">Média:</strong>
+            <span style="color: #212529;">{avg_pred:.1f}%</span>
+            |
+            <strong style="color: #212529;">Amplitude:</strong>
+            <span style="color: #212529;">{range_pred:.1f}%</span>
+            </small>
+        </div>
+        """, unsafe_allow_html=True)
 
-# Add sidebar with information
-with st.sidebar:
-    st.header("ℹ️ Sobre os Modelos")
+with col3:
+    st.subheader("ℹ️ Info")
     
+    # Model evolution explanation
+    with st.expander("🔬 Evolução dos Modelos", expanded=False):
+        st.markdown("""
+        **Por que 3 modelos diferentes?**
+        
+        **Modelo 1 - Baseline**  
+        Testamos se apenas o % Bolsa Família consegue prever o voto em Lula. Resultado: correlação forte, mas limitada.
+        
+        **Modelo 2 - Efeito Regional**  
+        Adicionamos o fator "região Nordeste", pois historicamente essa região vota mais no PT. Melhoria significativa na predição.
+        
+        **Modelo 3 - Efeitos Estaduais**  
+        Incluímos fatores específicos de cada estado, capturando diferenças políticas locais que vão além da região. Máxima precisão alcançada.
+        
+        **Interpretação:**  
+        Compare as predições para entender como fatores regionais e estaduais influenciam além da política social.
+        """)
+    
+    # Compact model explanation
     st.markdown("""
-    **Modelo 1**: Apenas % Bolsa Família
-    
-    **Modelo 2**: % Bolsa Família + Se é Nordeste (sim/não)
-    
-    **Modelo 3**: % Bolsa Família + Estado específico (UF)
+    **Modelos:**
+    - **1**: Só Bolsa Família
+    - **2**: + Efeito Nordeste  
+    - **3**: + Efeito Estadual
     """)
     
+    # Compact data statistics
     if df is not None:
-        st.header("📊 Estatísticas dos Dados")
-        st.metric("Municípios", f"{len(df):,}")
-        st.metric("% Voto Lula Mediano", f"{df['voto_lula'].median():.1f}%")
-        st.metric("% Bolsa Família Mediano", f"{df['perc_bolsa_familia'].median():.1f}%")
+        st.markdown(f"""
+        **Dados:**
+        - Municípios: {len(df):,}
+        - Voto Lula Mediano: {df['voto_lula'].median():.1f}%
+        - Bolsa Família Mediano: {df['perc_bolsa_familia'].median():.1f}%
+        """)
 
-    st.header("🚀 Como usar")
-    st.markdown("""
-    1. Ajuste o % de Bolsa Família (principal variável)
-    2. Selecione a região e estado para modelos 2 e 3
-    3. Compare como cada modelo responde
-    4. Observe o efeito regional vs. estadual
-    """)
-
-    st.header("🎯 Interpretação")
-    st.markdown("""
-    - **Modelo 1**: Efeito "puro" do Bolsa Família
-    - **Modelo 2**: Adiciona efeito específico do Nordeste
-    - **Modelo 3**: Considera particularidades de cada estado
-    """)
-
-# Footer
+# Remove the old sidebar
+# Add footer
 st.markdown("---")
 st.markdown("**Análise Eleições 2022** | Desenvolvido com Streamlit")
